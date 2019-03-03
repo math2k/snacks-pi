@@ -5,6 +5,8 @@ import sys
 import logging
 import time
 
+import requests
+
 import RPi.GPIO as GPIO
 import SimpleMFRC522
 import time
@@ -55,25 +57,56 @@ class VendingMachine(object):
         log.debug("Cleaning up GPIO")
         GPIO.cleanup()
 
-    def get_user(self, id):
-        return {566428238497: 'Math'}.get(id, 'Unknown')
+    def get_balance(self, id):
+        try:
+            r = requests.get(url='https://snacks.4lunch.eu/balance?badge={}'.format(id))
+            r.raise_for_status()
+            return r.json()
+        except:
+            return None
 
-    def get_product(self, code):
-        return {'1234': 'Mars bar - 0.40'}.get(code, 'Unknown')
+    def get_user(self, id):
+        try:
+            r = requests.get(url='https://snacks.4lunch.eu/user?badge={}'.format(id))
+            r.raise_for_status()
+            return r.json()
+        except:
+            return None
+
+    def get_item(self, code):
+        try:
+            r = requests.get(url='https://snacks.4lunch.eu/item?code={}'.format(code))
+            r.raise_for_status()
+            return r.json()
+        except:
+            return None
+
+    def pay(self):
+        try:
+            r = requests.post(url='https://snacks.4lunch.eu/pay', data={'code': self.code, 'badge': self.rfid_id})
+            r.raise_for_status()
+            return r.json()
+        except:
+            return None
 
     def main_loop(self):
-
         self.set_lcd_message('Snacks \nScan badge..')
         self.lcd.blink = True
         self.rfid_id, self.rfid_text = self.rfid_reader.read()
         self.user = self.get_user(self.rfid_id)
+        if self.user is None:
+            self.set_lcd_message("Badge not found\nRegistered ?")
         self.set_lcd_message("Hello {}\nEnter code:".format(self.user))
         self.read_code()
         if self.code == '1A*D':
             log.debug("Special code received: 1A*D -> shutdown!")
             shutdown(None)
-        self.product = self.get_product(self.code)
-        self.set_lcd_message('{}\nConfirm with *'.format(self.product))
+        self.item = self.get_item(self.code)
+        if self.item is None:
+            self.set_lcd_message("Invalid code")
+            time.sleep(3)
+            return
+        self.set_lcd_message('{} {}\nConfirm with *'.format(self.item['price'], self.item['name']))
         log.debug("Asking confirmation")
         self.read_star()
         timeout = 0
@@ -82,8 +115,12 @@ class VendingMachine(object):
             time.sleep(1)
             timeout += 1
         if self.confirmed:
+            log.debug("Paying {} for user {}".format(self.code, self.user))
+            if self.pay() is None:
+                log.error("Payment error!")
             log.debug("Confirmed!")
-            self.set_lcd_message('Thank you!\nCome again!')
+            balance = self.get_balance(self.rfid_id)
+            self.set_lcd_message('Thank you!\nBalance: {}'.format(balance))
         else:
             self.set_lcd_message('No confirmation\nSale aborted :(')
             log.debug("Not confirmed")
