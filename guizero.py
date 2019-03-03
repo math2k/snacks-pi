@@ -21,3 +21,5 @@ combo = Combo(app, options=items, width=200)
 button = PushButton(app, text="Buy", command=buy_thing)
 
 app.display()
+
+
