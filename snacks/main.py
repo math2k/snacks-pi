@@ -118,6 +118,7 @@ class VendingMachine(object):
         self.read_code()
         if self.code == '1A*D':
             log.debug("Special code received: 1A*D -> shutdown!")
+            self.set_lcd_message("Shutting down!\nBye!")
             shutdown(None)
         self.item = self.get_item(self.code)
         if self.item is None:
