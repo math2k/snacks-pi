@@ -18,6 +18,12 @@ import adafruit_character_lcd.character_lcd as characterlcd
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
+SECRET = os.environ.get('SHARED_SECRET')
+if SECRET is None:
+    log.fatal("No secret set, shutting down!")
+    sys.exit(1)
+
+
 class VendingMachine(object):
 
     def __init__(self, rfid_reader, lcd, keypad):
@@ -36,7 +42,8 @@ class VendingMachine(object):
         self.set_lcd_message("Hello {}\nEnter code:{}".format(self.user, self.code))
         log.debug("Current code is: {}".format(self.code))
 
-    def set_lcd_message(self, message):
+    def set_lcd_message(self, message, blink=False):
+        self.lcd.blink = blink
         self.lcd.clear()
         self.lcd.message = message
 
@@ -59,7 +66,7 @@ class VendingMachine(object):
 
     def get_balance(self, id):
         try:
-            r = requests.get(url='https://snacks.4lunch.eu/balance?badge={}'.format(id))
+            r = requests.get(url='https://snacks.4lunch.eu/balance', params={'badge': id, 'secret': SECRET})
             r.raise_for_status()
             return r.json()
         except:
@@ -67,7 +74,7 @@ class VendingMachine(object):
 
     def get_user(self, id):
         try:
-            r = requests.get(url='https://snacks.4lunch.eu/user?badge={}'.format(id))
+            r = requests.get(url='https://snacks.4lunch.eu/user', params={'badge': id, 'secret': SECRET})
             r.raise_for_status()
             return r.json()
         except:
@@ -75,7 +82,7 @@ class VendingMachine(object):
 
     def get_item(self, code):
         try:
-            r = requests.get(url='https://snacks.4lunch.eu/item?code={}'.format(code))
+            r = requests.get(url='https://snacks.4lunch.eu/item', params={'code': code, 'secret': SECRET})
             r.raise_for_status()
             return r.json()
         except:
@@ -83,34 +90,44 @@ class VendingMachine(object):
 
     def pay(self):
         try:
-            r = requests.post(url='https://snacks.4lunch.eu/pay', data={'code': self.code, 'badge': self.rfid_id})
+            r = requests.post(url='https://snacks.4lunch.eu/pay', data={'code': self.code, 'badge': self.rfid_id}, params={'secret': SECRET})
             r.raise_for_status()
             return r.json()
         except:
             return None
 
     def main_loop(self):
-        self.set_lcd_message('Snacks \nScan badge..')
+        try:
+            r = requests.get(url="https://snacks.4lunch.eu")
+            # r = requests.get(url="https://httpstat.us/500")
+            r.raise_for_status()
+            log.debug("Network OK")
+        except:
+            self.set_lcd_message("Server error\nNetwork down ?", blink=False)
+            log.debug("Can't reach server: {}".format(r))
+            time.sleep(60)
+        self.set_lcd_message('Snacks ?\nScan badge..', blink=True)
         self.lcd.blink = True
         self.rfid_id, self.rfid_text = self.rfid_reader.read()
         self.user = self.get_user(self.rfid_id)
         if self.user is None:
-            self.set_lcd_message("Badge not found\nRegistered ?")
-        self.set_lcd_message("Hello {}\nEnter code:".format(self.user))
+            self.set_lcd_message("Unknown badge\n{}".format(self.rfid_id), blink=False)
+            time.sleep(10)
+            return
+        self.set_lcd_message("Hello {}\nEnter code:".format(self.user), blink=True)
         self.read_code()
         if self.code == '1A*D':
             log.debug("Special code received: 1A*D -> shutdown!")
             shutdown(None)
         self.item = self.get_item(self.code)
         if self.item is None:
-            self.set_lcd_message("Invalid code")
+            self.set_lcd_message("Invalid code", blink=False)
             time.sleep(3)
             return
-        self.set_lcd_message('{} {}\nConfirm with *'.format(self.item['price'], self.item['name']))
+        self.set_lcd_message('{} {}\nConfirm with *'.format(self.item['price'], self.item['name']), blink=True)
         log.debug("Asking confirmation")
         self.read_star()
         timeout = 0
-        self.lcd.blink = False
         while not self.confirmed and timeout < 5:
             time.sleep(1)
             timeout += 1
@@ -120,9 +137,9 @@ class VendingMachine(object):
                 log.error("Payment error!")
             log.debug("Confirmed!")
             balance = self.get_balance(self.rfid_id)
-            self.set_lcd_message('Thank you!\nBalance: {}'.format(balance))
+            self.set_lcd_message('Thank you!\nBalance: {}'.format(balance), blink=False)
         else:
-            self.set_lcd_message('No confirmation\nSale aborted :(')
+            self.set_lcd_message('No confirmation\nSale aborted :(', blink=False)
             log.debug("Not confirmed")
         time.sleep(3)
 
@@ -132,9 +149,11 @@ def restart(channel):
     os.execl(sys.executable, *([sys.executable] + sys.argv))
     sys.exit(0)
 
+
 def shutdown(channel):
     log.debug("Shutdown requested via button")
     os.system('systemctl poweroff')
+
 
 if __name__ == "__main__":
 
@@ -149,8 +168,8 @@ if __name__ == "__main__":
     lcd_columns = 16
     lcd_rows = 2
     lcd = characterlcd.Character_LCD_Mono(lcd_rs, lcd_en, lcd_d4, lcd_d5, lcd_d6,
-                                               lcd_d7, lcd_columns, lcd_rows,
-                                               lcd_backlight)
+                                          lcd_d7, lcd_columns, lcd_rows,
+                                          lcd_backlight)
 
     # keypad definition
     keypad_layout = [
@@ -169,8 +188,8 @@ if __name__ == "__main__":
     GPIO.add_event_detect(17, GPIO.RISING, callback=restart, bouncetime=500)
 
     # shutdown button - not working (too much noise from other button)
-    #GPIO.setup(7, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    #GPIO.add_event_detect(7, GPIO.RISING, callback=shutdown, bouncetime=500)
+    # GPIO.setup(7, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    # GPIO.add_event_detect(7, GPIO.RISING, callback=shutdown, bouncetime=500)
 
     # rfid reader
     rfid_reader = SimpleMFRC522.SimpleMFRC522()
