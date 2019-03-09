@@ -66,7 +66,7 @@ class VendingMachine(object):
 
     def get_balance(self, id):
         try:
-            r = requests.get(url='https://snacks.4lunch.eu/balance', params={'badge': id, 'secret': SECRET})
+            r = requests.get(url='https://snacks.4lunch.eu/balance', params={'badge': id}, headers={'secret': SECRET})
             r.raise_for_status()
             return r.json()
         except:
@@ -74,7 +74,7 @@ class VendingMachine(object):
 
     def get_user(self, id):
         try:
-            r = requests.get(url='https://snacks.4lunch.eu/user', params={'badge': id, 'secret': SECRET})
+            r = requests.get(url='https://snacks.4lunch.eu/user', params={'badge': id}, headers={'secret': SECRET})
             r.raise_for_status()
             return r.json()
         except:
@@ -82,7 +82,7 @@ class VendingMachine(object):
 
     def get_item(self, code):
         try:
-            r = requests.get(url='https://snacks.4lunch.eu/item', params={'code': code, 'secret': SECRET})
+            r = requests.get(url='https://snacks.4lunch.eu/item', params={'code': code}, headers={'secret': SECRET})
             r.raise_for_status()
             return r.json()
         except:
@@ -90,7 +90,7 @@ class VendingMachine(object):
 
     def pay(self):
         try:
-            r = requests.post(url='https://snacks.4lunch.eu/pay', data={'code': self.code, 'badge': self.rfid_id}, params={'secret': SECRET})
+            r = requests.post(url='https://snacks.4lunch.eu/pay', data={'code': self.code, 'badge': self.rfid_id}, headers={'secret': SECRET})
             r.raise_for_status()
             return r.json()
         except:
@@ -147,8 +147,9 @@ class VendingMachine(object):
 
 def restart(channel):
     log.debug("Restart requested via button")
-    os.execl(sys.executable, *([sys.executable] + sys.argv))
-    sys.exit(0)
+    #os.execl(sys.executable, *([sys.executable] + sys.argv))
+    os.system("systemctl restart snacks")
+    #sys.exit(0)
 
 
 def shutdown(channel):
